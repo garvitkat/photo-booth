@@ -94,6 +94,20 @@
   animation: slideUp 1s ease-out forwards;
 }
 
+@keyframes flash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-flash {
+  animation: flash 300ms ease-out forwards;
+}
+
 .bg-cream {
   background-color: hsl(var(--cream));
 }

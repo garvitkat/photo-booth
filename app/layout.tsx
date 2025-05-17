@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Inter, Dancing_Script } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import localFont from "next/font/local"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -13,9 +14,20 @@ const dancingScript = Dancing_Script({
   variable: "--font-dancing-script",
 })
 
+// Load Virgil handwriting font
+const virgil = localFont({
+  src: "../public/fonts/Virgil.woff2",
+  variable: "--font-virgil",
+  display: "swap",
+})
+
 export const metadata: Metadata = {
-  title: "RetroSnaps - Polaroid Style Photo Booth",
+  title: "RetroSnaps",
   description: "Create vintage Polaroid-style photo strips with your camera",
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-icon.png",
+  },
     generator: 'v0.dev'
 }
 
@@ -26,7 +38,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} ${dancingScript.variable}`}>
+      <head>
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+      </head>
+      <body className={`${inter.className} ${dancingScript.variable} ${virgil.variable}`}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           {children}
         </ThemeProvider>

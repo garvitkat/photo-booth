@@ -1,19 +1,24 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import type React from "react"
+
+import { useEffect, useRef, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Camera, Download, RefreshCw } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Camera, Download, RefreshCw, Edit, Check } from "lucide-react"
 import Link from "next/link"
+import Webcam from "react-webcam"
 
 type PhotoBoothState =
   | "requesting-permission"
   | "permission-denied"
   | "ready"
   | "countdown"
-  | "taking-photos"
+  | "taking-photo"
   | "processing"
   | "complete"
+  | "adding-caption"
 
 export default function PhotoBooth() {
   const router = useRouter()
@@ -21,66 +26,124 @@ export default function PhotoBooth() {
   const [countdown, setCountdown] = useState(3)
   const [photoIndex, setPhotoIndex] = useState(0)
   const [photos, setPhotos] = useState<string[]>([])
+  const [caption, setCaption] = useState("")
   const [photoStrip, setPhotoStrip] = useState<string | null>(null)
+  const [previewStrip, setPreviewStrip] = useState<string | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [flashActive, setFlashActive] = useState(false)
 
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Refs for elements
+  const webcamRef = useRef<Webcam>(null)
   const stripCanvasRef = useRef<HTMLCanvasElement>(null)
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null)
+  const webcamContainerRef = useRef<HTMLDivElement>(null)
+  const captionInputRef = useRef<HTMLInputElement>(null)
 
-  // Request camera permission and set up video stream
+  // Calculate aspect ratio for proper photo capture
+  const [aspectRatio, setAspectRatio] = useState({ width: 1, height: 1 })
+  const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 })
+
+  // Maximum caption length - reduced for larger text
+  const MAX_CAPTION_LENGTH = 20
+
+  // Sound utility function - authentic Polaroid camera sound
+  const playPolaroidSound = useCallback(() => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+
+      // Motor whirring sound
+      const motorOscillator = audioContext.createOscillator()
+      const motorGain = audioContext.createGain()
+
+      motorOscillator.type = "sawtooth"
+      motorOscillator.frequency.setValueAtTime(100, audioContext.currentTime)
+      motorOscillator.frequency.setValueAtTime(120, audioContext.currentTime + 0.1)
+      motorOscillator.frequency.setValueAtTime(80, audioContext.currentTime + 0.2)
+
+      motorGain.gain.setValueAtTime(0.03, audioContext.currentTime)
+      motorGain.gain.setValueAtTime(0.05, audioContext.currentTime + 0.1)
+      motorGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.8)
+
+      motorOscillator.connect(motorGain)
+      motorGain.connect(audioContext.destination)
+
+      motorOscillator.start()
+      motorOscillator.stop(audioContext.currentTime + 0.8)
+
+      // Ejection click sound
+      setTimeout(() => {
+        const clickOscillator = audioContext.createOscillator()
+        const clickGain = audioContext.createGain()
+
+        clickOscillator.type = "triangle"
+        clickOscillator.frequency.setValueAtTime(800, audioContext.currentTime)
+        clickOscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.15)
+
+        clickGain.gain.setValueAtTime(0.1, audioContext.currentTime)
+        clickGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.15)
+
+        clickOscillator.connect(clickGain)
+        clickGain.connect(audioContext.destination)
+
+        clickOscillator.start()
+        clickOscillator.stop(audioContext.currentTime + 0.15)
+      }, 300)
+    } catch (err) {
+      console.error("Error playing Polaroid sound:", err)
+    }
+  }, [])
+
+  // Update container dimensions when component mounts or window resizes
   useEffect(() => {
-    async function setupCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "user",
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        })
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-
-          // Add event listeners to ensure video plays and to handle errors
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current
-              ?.play()
-              .then(() => {
-                console.log("Video is playing")
-                setState("ready")
-              })
-              .catch((err) => {
-                console.error("Error playing video:", err)
-                setCameraError("Error playing video feed. Please try again.")
-              })
-          }
-
-          videoRef.current.onerror = () => {
-            console.error("Video element error")
-            setCameraError("Video element error. Please try again.")
-          }
-        }
-      } catch (err) {
-        console.error("Error accessing camera:", err)
-        setCameraError(`Camera access error: ${err instanceof Error ? err.message : String(err)}`)
-        setState("permission-denied")
+    const updateDimensions = () => {
+      if (webcamContainerRef.current) {
+        const { width, height } = webcamContainerRef.current.getBoundingClientRect()
+        setContainerDimensions({ width, height })
+        setAspectRatio({ width: width, height: height })
       }
     }
 
-    if (state === "requesting-permission") {
-      setupCamera()
-    }
+    updateDimensions()
+    window.addEventListener("resize", updateDimensions)
 
     return () => {
-      // Clean up video stream when component unmounts
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream
-        stream.getTracks().forEach((track) => track.stop())
-      }
+      window.removeEventListener("resize", updateDimensions)
+    }
+  }, [])
+
+  // Focus caption input when entering caption state
+  useEffect(() => {
+    if (state === "adding-caption" && captionInputRef.current) {
+      captionInputRef.current.focus()
     }
   }, [state])
+
+  // Update preview when caption changes
+  useEffect(() => {
+    if (state === "adding-caption" && photos.length === 3) {
+      updatePreviewWithCaption(caption)
+    }
+  }, [caption, state, photos])
+
+  // Handle webcam ready state
+  const handleUserMedia = useCallback(() => {
+    console.log("Webcam ready - user media received")
+    setState("ready")
+
+    // Update dimensions once webcam is ready
+    if (webcamContainerRef.current) {
+      const { width, height } = webcamContainerRef.current.getBoundingClientRect()
+      setContainerDimensions({ width, height })
+      setAspectRatio({ width: width, height: height })
+    }
+  }, [])
+
+  // Handle webcam errors
+  const handleUserMediaError = useCallback((error: string | DOMException) => {
+    console.error("Webcam error:", error)
+    setCameraError(`Camera error: ${error instanceof DOMException ? error.message : error}`)
+    setState("permission-denied")
+  }, [])
 
   // Handle countdown timer
   useEffect(() => {
@@ -89,7 +152,10 @@ export default function PhotoBooth() {
     if (state === "countdown" && countdown > 0) {
       timer = setTimeout(() => setCountdown(countdown - 1), 1000)
     } else if (state === "countdown" && countdown === 0) {
-      capturePhoto()
+      setState("taking-photo")
+      setTimeout(() => {
+        capturePhoto()
+      }, 300) // Short delay to show the "0" before taking photo
     }
 
     return () => clearTimeout(timer)
@@ -101,72 +167,174 @@ export default function PhotoBooth() {
     setCountdown(3)
     setPhotoIndex(0)
     setPhotos([])
+    setCaption("")
+    setPhotoStrip(null)
+    setPreviewStrip(null)
   }
 
   // Capture a single photo
-  const capturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return
+  const capturePhoto = useCallback(() => {
+    if (!webcamRef.current) return
 
-    setState("taking-photos")
+    // Activate flash effect
+    setFlashActive(true)
+    setTimeout(() => setFlashActive(false), 300)
 
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    const context = canvas.getContext("2d")
+    // Play authentic Polaroid sound
+    playPolaroidSound()
 
-    if (!context) return
+    // Get the webcam container dimensions for proper cropping
+    const containerWidth = containerDimensions.width
+    const containerHeight = containerDimensions.height
 
-    // Set canvas dimensions to match video aspect ratio
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    // Capture photo from webcam
+    const fullPhotoData = webcamRef.current.getScreenshot()
 
-    // Draw the current video frame to the canvas
-    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    if (!fullPhotoData) {
+      console.error("Failed to capture photo")
+      setCameraError("Failed to capture photo. Please try again.")
+      setState("ready")
+      return
+    }
 
-    // Get the image data as a base64 string
-    const photoData = canvas.toDataURL("image/jpeg")
+    // Create a temporary image to get the full dimensions
+    const img = new Image()
+    img.onload = () => {
+      // Create a canvas to crop the image to match what's shown in the UI
+      const canvas = document.createElement("canvas")
+      const ctx = canvas.getContext("2d")
 
-    // Add the photo to our collection
-    const newPhotos = [...photos, photoData]
-    setPhotos(newPhotos)
+      if (!ctx) return
 
-    if (newPhotos.length < 3) {
-      // If we need more photos, start another countdown
-      setTimeout(() => {
-        setPhotoIndex(photoIndex + 1)
-        setState("countdown")
-        setCountdown(3)
-      }, 1000)
-    } else {
-      // If we have all 3 photos, process them into a strip
-      setState("processing")
-      setTimeout(() => createPhotoStrip(newPhotos), 1000)
+      // Set canvas to the container dimensions (what's visible in the UI)
+      canvas.width = containerWidth
+      canvas.height = containerHeight
+
+      // Calculate scaling and positioning to center the image in the visible area
+      const scale = Math.max(containerWidth / img.width, containerHeight / img.height)
+      const scaledWidth = img.width * scale
+      const scaledHeight = img.height * scale
+      const offsetX = (containerWidth - scaledWidth) / 2
+      const offsetY = (containerHeight - scaledHeight) / 2
+
+      // Draw only the visible portion of the webcam feed
+      ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight)
+
+      // Get the cropped image data
+      const croppedPhotoData = canvas.toDataURL("image/jpeg")
+
+      // Add the photo to our collection
+      setPhotos((prevPhotos) => {
+        const newPhotos = [...prevPhotos, croppedPhotoData]
+
+        // Check if we need more photos
+        if (newPhotos.length < 3) {
+          // Move to next photo - start countdown for next photo
+          setTimeout(() => {
+            setPhotoIndex((prevIndex) => prevIndex + 1)
+            setState("countdown")
+            setCountdown(3)
+          }, 500) // Short delay before starting next countdown
+        } else {
+          // All photos taken, create strip
+          setState("processing")
+          setTimeout(() => createPhotoStrip(newPhotos, ""), 1000)
+        }
+
+        return newPhotos
+      })
+    }
+
+    img.src = fullPhotoData
+  }, [containerDimensions, photoIndex, playPolaroidSound])
+
+  // Handle caption changes
+  const handleCaptionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Limit caption to maximum length
+    if (e.target.value.length <= MAX_CAPTION_LENGTH) {
+      setCaption(e.target.value)
     }
   }
 
-  // Create the final photo strip from the captured photos
-  const createPhotoStrip = async (photoList: string[]) => {
-    if (!stripCanvasRef.current) return
+  // Save caption and update photo strip
+  const saveCaption = () => {
+    setState("processing")
+    setTimeout(() => createPhotoStrip(photos, caption), 500)
+  }
 
-    const canvas = stripCanvasRef.current
+  // Toggle caption editing mode
+  const toggleCaptionEdit = () => {
+    setState("adding-caption")
+    // Create initial preview with empty caption
+    updatePreviewWithCaption("")
+  }
+
+  // Update preview with current caption
+  const updatePreviewWithCaption = async (captionText: string) => {
+    if (!previewCanvasRef.current || photos.length !== 3) return
+
+    const canvas = previewCanvasRef.current
+    await renderPhotoStrip(canvas, photos, captionText)
+
+    const previewData = canvas.toDataURL("image/png")
+    setPreviewStrip(previewData)
+  }
+
+  // Render photo strip on a canvas
+  const renderPhotoStrip = async (canvas: HTMLCanvasElement, photoList: string[], captionText: string) => {
     const ctx = canvas.getContext("2d")
-
     if (!ctx) return
 
     // Set dimensions for the photo strip
     const stripWidth = 800
-    const photoHeight = 800
+    const photoHeight = 700
+    const captionHeight = 200 // Increased height for caption area
     const borderWidth = 40
-    const bottomBorderExtra = 60
+    const spaceBetweenPhotos = 20
+    const cornerRadius = 20 // Rounded corners
 
-    // Calculate total height for 3 photos with borders
-    const stripHeight = (photoHeight + borderWidth * 2) * 3 + bottomBorderExtra
+    // Calculate total height for 3 photos with borders, spaces, and caption area
+    const stripHeight =
+      photoHeight * 3 + // Height of all photos
+      spaceBetweenPhotos * 2 + // Space between photos
+      borderWidth * 2 + // Top and bottom borders
+      captionHeight // Caption area at bottom
 
     canvas.width = stripWidth
     canvas.height = stripHeight
 
-    // Fill with white background (Polaroid color)
+    // Helper function to draw rounded rectangle
+    const drawRoundedRect = (x: number, y: number, width: number, height: number, radius: number) => {
+      ctx.beginPath()
+      ctx.moveTo(x + radius, y)
+      ctx.lineTo(x + width - radius, y)
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius)
+      ctx.lineTo(x + width, y + height - radius)
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height)
+      ctx.lineTo(x + radius, y + height)
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius)
+      ctx.lineTo(x, y + radius)
+      ctx.quadraticCurveTo(x, y, x + radius, y)
+      ctx.closePath()
+    }
+
+    // Fill with white background with rounded corners for the strip
     ctx.fillStyle = "#fff"
-    ctx.fillRect(0, 0, stripWidth, stripHeight)
+    drawRoundedRect(0, 0, stripWidth, stripHeight, cornerRadius)
+    ctx.fill()
+
+    // Add subtle texture to the background for vintage feel
+    ctx.save()
+    ctx.globalAlpha = 0.03
+    for (let i = 0; i < stripWidth; i += 4) {
+      for (let j = 0; j < stripHeight; j += 4) {
+        if (Math.random() > 0.75) {
+          ctx.fillStyle = "#000"
+          ctx.fillRect(i, j, 2, 2)
+        }
+      }
+    }
+    ctx.restore()
 
     // Load each photo and add to the strip
     for (let i = 0; i < photoList.length; i++) {
@@ -177,15 +345,42 @@ export default function PhotoBooth() {
       await new Promise<void>((resolve) => {
         img.onload = () => {
           // Calculate position for this photo
-          const yPos = i * (photoHeight + borderWidth * 2)
-
-          // Draw white border (already filled above)
+          const yPos = borderWidth + i * (photoHeight + spaceBetweenPhotos)
 
           // Apply vintage filter
           ctx.filter = "saturate(0.8) brightness(1.1) contrast(0.85) sepia(0.15)"
 
-          // Draw the photo with borders
-          ctx.drawImage(img, borderWidth, yPos + borderWidth, stripWidth - borderWidth * 2, photoHeight)
+          // Save context for clipping
+          ctx.save()
+
+          // Create clipping path for rounded corners on the photo
+          const innerRadius = 10 // Slightly rounded corners for photos
+          drawRoundedRect(borderWidth, yPos, stripWidth - borderWidth * 2, photoHeight, innerRadius)
+          ctx.clip()
+
+          // Calculate dimensions to maintain aspect ratio
+          const photoWidth = stripWidth - borderWidth * 2
+          const photoAspectRatio = img.width / img.height
+          let drawWidth = photoWidth
+          let drawHeight = photoWidth / photoAspectRatio
+          let offsetX = 0
+          let offsetY = 0
+
+          // If the calculated height is greater than the available space, adjust
+          if (drawHeight > photoHeight) {
+            drawHeight = photoHeight
+            drawWidth = photoHeight * photoAspectRatio
+            offsetX = (photoWidth - drawWidth) / 2
+          } else {
+            // Center vertically if there's extra space
+            offsetY = (photoHeight - drawHeight) / 2
+          }
+
+          // Draw the photo with proper aspect ratio
+          ctx.drawImage(img, borderWidth + offsetX, yPos + offsetY, drawWidth, drawHeight)
+
+          // Restore context
+          ctx.restore()
 
           // Reset filter
           ctx.filter = "none"
@@ -196,7 +391,11 @@ export default function PhotoBooth() {
           ctx.shadowOffsetX = 0
           ctx.shadowOffsetY = 0
           ctx.strokeStyle = "rgba(0,0,0,0.05)"
-          ctx.strokeRect(borderWidth + 2, yPos + borderWidth + 2, stripWidth - borderWidth * 2 - 4, photoHeight - 4)
+
+          // Draw stroke with rounded corners
+          ctx.beginPath()
+          drawRoundedRect(borderWidth + 2, yPos + 2, stripWidth - borderWidth * 2 - 4, photoHeight - 4, innerRadius - 2)
+          ctx.stroke()
 
           // Reset shadow
           ctx.shadowColor = "transparent"
@@ -207,17 +406,28 @@ export default function PhotoBooth() {
       })
     }
 
-    // Add date at the bottom in cursive font
-    const date = new Date().toLocaleDateString("en-US", {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    })
+    // Add caption area at the bottom of the strip
+    if (captionText) {
+      // Position for caption (below the last photo)
+      const captionY = borderWidth + 3 * photoHeight + 2 * spaceBetweenPhotos + 20
 
-    ctx.font = "36px var(--font-dancing-script), cursive"
-    ctx.fillStyle = "#333"
-    ctx.textAlign = "center"
-    ctx.fillText(date, stripWidth / 2, stripHeight - 30)
+      // Draw caption text - MUCH LARGER
+      ctx.font = "bold 80px var(--font-virgil), sans-serif" // Significantly increased font size
+      ctx.fillStyle = "#333"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+
+      // Add caption text
+      ctx.fillText(captionText, stripWidth / 2, captionY + captionHeight / 2 - 20)
+    }
+  }
+
+  // Create the final photo strip from the captured photos
+  const createPhotoStrip = async (photoList: string[], captionText: string) => {
+    if (!stripCanvasRef.current) return
+
+    const canvas = stripCanvasRef.current
+    await renderPhotoStrip(canvas, photoList, captionText)
 
     // Get the final image data
     const stripData = canvas.toDataURL("image/png")
@@ -242,12 +452,22 @@ export default function PhotoBooth() {
     setState("ready")
     setPhotos([])
     setPhotoStrip(null)
+    setPreviewStrip(null)
+    setCaption("")
   }
 
   // Force retry camera access
   const retryCamera = () => {
     setCameraError(null)
     setState("requesting-permission")
+  }
+
+  // Webcam configuration
+  const videoConstraints = {
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    facingMode: "user",
+    aspectRatio: 3 / 4,
   }
 
   return (
@@ -267,8 +487,8 @@ export default function PhotoBooth() {
       </div>
 
       {/* Hidden canvases for processing */}
-      <canvas ref={canvasRef} className="hidden" />
       <canvas ref={stripCanvasRef} className="hidden" />
+      <canvas ref={previewCanvasRef} className="hidden" />
 
       <div className="w-full max-w-md mx-auto bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg">
         {state === "permission-denied" && (
@@ -284,31 +504,70 @@ export default function PhotoBooth() {
           </div>
         )}
 
-        {(state === "requesting-permission" || state === "ready") && (
+        {(state === "requesting-permission" ||
+          state === "ready" ||
+          state === "countdown" ||
+          state === "taking-photo") && (
           <div className="space-y-6">
             <div className="relative bg-black rounded-lg overflow-hidden shadow-lg">
-              {state === "requesting-permission" ? (
-                <div className="aspect-[3/4] flex flex-col items-center justify-center bg-neutral-800 p-4">
-                  <p className="text-white text-lg animate-pulse mb-4">Requesting camera access...</p>
-                  {cameraError && (
-                    <div className="text-red-400 text-sm text-center">
-                      <p>{cameraError}</p>
-                      <Button
-                        variant="outline"
-                        className="mt-4 text-white border-white hover:bg-white/20"
-                        onClick={retryCamera}
-                      >
-                        Retry
-                      </Button>
+              <div ref={webcamContainerRef} className="aspect-[3/4] w-full">
+                {/* Show loading message when requesting permission */}
+                {state === "requesting-permission" && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-800 p-4 z-20">
+                    <p className="text-white text-lg animate-pulse mb-4">Requesting camera access...</p>
+                    {cameraError && (
+                      <div className="text-red-400 text-sm text-center">
+                        <p>{cameraError}</p>
+                        <Button
+                          variant="outline"
+                          className="mt-4 text-white border-white hover:bg-white/20"
+                          onClick={retryCamera}
+                        >
+                          Retry
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* React Webcam component - always visible during countdown and capture */}
+                <Webcam
+                  ref={webcamRef}
+                  audio={false}
+                  screenshotFormat="image/jpeg"
+                  videoConstraints={videoConstraints}
+                  onUserMedia={handleUserMedia}
+                  onUserMediaError={handleUserMediaError}
+                  mirrored={true}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{
+                    display: "block",
+                    minHeight: "300px",
+                    opacity: state === "requesting-permission" ? 0 : 1,
+                    transition: "opacity 0.5s ease",
+                  }}
+                />
+
+                {/* Flash effect overlay */}
+                {flashActive && <div className="absolute inset-0 bg-white z-30 animate-flash"></div>}
+
+                {/* Prominent centered countdown overlay with darkened background */}
+                {state === "countdown" && (
+                  <div className="absolute inset-0 flex items-center justify-center z-20">
+                    {/* Semi-transparent dark overlay */}
+                    <div className="absolute inset-0 bg-black/40"></div>
+
+                    {/* Large centered countdown */}
+                    <div className="relative z-10 bg-black/70 rounded-full w-32 h-32 flex flex-col items-center justify-center">
+                      <span className="text-white text-6xl font-bold">{countdown}</span>
+                      <span className="text-white text-sm mt-1">Photo {photoIndex + 1} of 3</span>
                     </div>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <video ref={videoRef} autoPlay playsInline muted className="w-full aspect-[3/4] object-cover" />
-                  <div className="absolute inset-0 pointer-events-none border-[20px] border-white" />
-                </>
-              )}
+                  </div>
+                )}
+
+                {/* Polaroid border with rounded corners */}
+                <div className="absolute inset-0 pointer-events-none border-[20px] border-white z-10 rounded-lg" />
+              </div>
             </div>
 
             <div className="flex justify-center">
@@ -322,33 +581,76 @@ export default function PhotoBooth() {
               </Button>
             </div>
 
-            <p className="text-center text-neutral-600">Press the button to take 3 photos for your strip</p>
+            <p className="text-center text-neutral-600">
+              {state === "ready"
+                ? "Press the button to take 3 photos for your strip"
+                : state === "countdown"
+                  ? `Get ready for photo ${photoIndex + 1} of 3...`
+                  : state === "taking-photo"
+                    ? "Capturing..."
+                    : ""}
+            </p>
           </div>
         )}
 
-        {state === "countdown" && (
-          <div className="fixed inset-0 flex items-center justify-center bg-black/80 z-10">
-            <div className="text-white text-center">
-              <p className="text-xl mb-4">Get Ready...</p>
-              <p className="text-8xl font-bold animate-pulse">{countdown}</p>
-              <p className="mt-4 text-lg">Photo {photoIndex + 1} of 3</p>
+        {/* Caption input step with live preview */}
+        {state === "adding-caption" && previewStrip && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-center">Add a Caption</h2>
+
+            <div className="relative mx-auto w-full max-w-xs">
+              <img
+                src={previewStrip || "/placeholder.svg"}
+                alt="Your photo strip preview"
+                className="w-full shadow-lg rounded-xl object-contain"
+                style={{ maxHeight: "60vh" }}
+              />
             </div>
-          </div>
-        )}
 
-        {state === "taking-photos" && (
-          <div className="fixed inset-0 flex items-center justify-center bg-white z-10">
-            <div className="animate-ping rounded-full h-24 w-24 bg-brown opacity-75" />
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label htmlFor="caption" className="block text-sm font-medium text-neutral-700">
+                  Write a caption for your photo strip:
+                </label>
+                <Input
+                  ref={captionInputRef}
+                  id="caption"
+                  type="text"
+                  placeholder="Your caption here..."
+                  value={caption}
+                  onChange={handleCaptionChange}
+                  maxLength={MAX_CAPTION_LENGTH}
+                  className="border-brown focus:ring-brown font-virgil text-2xl"
+                />
+                <p className="text-xs text-neutral-500">
+                  {caption.length}/{MAX_CAPTION_LENGTH} characters
+                </p>
+              </div>
+
+              <div className="flex justify-center space-x-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setState("complete")}
+                  className="border-brown text-brown hover:bg-brown/10"
+                >
+                  Cancel
+                </Button>
+                <Button onClick={saveCaption} className="bg-brown hover:bg-brown/80 text-white">
+                  <Check className="w-4 h-4 mr-2" />
+                  Save Caption
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 
         {state === "processing" && (
-          <div className="text-center space-y-4">
-            <h2 className="text-2xl font-bold">Processing your photos...</h2>
+          <div className="text-center space-y-4 py-8">
+            <h2 className="text-2xl font-bold">Creating your photo strip...</h2>
             <div className="flex justify-center">
               <RefreshCw className="w-12 h-12 animate-spin text-brown" />
             </div>
-            <p className="text-neutral-600">Creating your vintage photo strip</p>
+            <p className="text-neutral-600">Almost there!</p>
           </div>
         )}
 
@@ -357,10 +659,26 @@ export default function PhotoBooth() {
             <h2 className="text-2xl font-bold">Your Photo Strip</h2>
 
             <div className="relative mx-auto w-full max-w-xs animate-slideUp">
-              <img src={photoStrip || "/placeholder.svg"} alt="Your photo strip" className="w-full shadow-lg" />
+              <img
+                src={photoStrip || "/placeholder.svg"}
+                alt="Your photo strip"
+                className="w-full shadow-lg rounded-xl object-contain"
+                style={{ maxHeight: "70vh" }}
+              />
             </div>
 
             <div className="flex flex-col gap-3">
+              {!caption && (
+                <Button
+                  onClick={toggleCaptionEdit}
+                  variant="outline"
+                  className="flex items-center justify-center gap-2 border-brown text-brown hover:bg-brown/10"
+                >
+                  <Edit className="w-4 h-4" />
+                  Add Caption
+                </Button>
+              )}
+
               <Button
                 onClick={downloadStrip}
                 className="flex items-center justify-center gap-2 bg-brown hover:bg-brown/80 text-white"

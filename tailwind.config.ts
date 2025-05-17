@@ -77,6 +77,7 @@ const config = {
       },
       fontFamily: {
         "dancing-script": ["var(--font-dancing-script)", "cursive"],
+        virgil: ["var(--font-virgil)", "sans-serif"],
       },
     },
   },
