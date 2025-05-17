@@ -231,7 +231,8 @@ export default function PhotoBooth() {
         if (newPhotos.length < 3) {
           // Move to next photo - start countdown for next photo
           setTimeout(() => {
-            setPhotoIndex((prevIndex) => prevIndex + 1)
+            // This ensures photoIndex always reflects the number of photos already taken
+            setPhotoIndex(newPhotos.length)
             setState("countdown")
             setCountdown(3)
           }, 500) // Short delay before starting next countdown
@@ -246,7 +247,7 @@ export default function PhotoBooth() {
     }
 
     img.src = fullPhotoData
-  }, [containerDimensions, photoIndex, playPolaroidSound])
+  }, [containerDimensions, playPolaroidSound])
 
   // Handle caption changes
   const handleCaptionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
