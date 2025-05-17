@@ -1,20 +1,19 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Inter, Dancing_Script } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import localFont from "next/font/local"
 
-const inter = Inter({ subsets: ["latin"] })
+// Import Fontsource fonts
+import "@fontsource/inter/latin.css"; // Default weights and styles for latin subset
+import "@fontsource/dancing-script/latin-400.css"; // Weight 400 for latin subset
+import "@fontsource/dancing-script/latin-700.css"; // Weight 700 for latin subset
 
-// Properly load Dancing Script font using Next.js font system
-const dancingScript = Dancing_Script({
-  subsets: ["latin"],
-  weight: ["400", "700"],
-  variable: "--font-dancing-script",
-})
+// It's good practice to define font variables for consistency, though Fontsource might apply Inter globally.
+const interFontFamily = "'Inter', sans-serif"
+const dancingScriptFontFamily = "'Dancing Script', cursive"
 
-// Load Virgil handwriting font
+// Load Virgil handwriting font (already local)
 const virgil = localFont({
   src: "../public/fonts/Virgil.woff2",
   variable: "--font-virgil",
@@ -40,8 +39,19 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
+        <style>
+          {`
+            :root {
+              --font-dancing-script: ${dancingScriptFontFamily};
+            }
+            body {
+              font-family: ${interFontFamily};
+            }
+          `}
+        </style>
       </head>
-      <body className={`${inter.className} ${dancingScript.variable} ${virgil.variable}`}>
+      {/* Apply Virgil variable, Inter is set via style tag, Dancing Script via CSS variable */}
+      <body className={`${virgil.variable}`}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           {children}
         </ThemeProvider>
