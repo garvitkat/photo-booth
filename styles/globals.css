@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import Virgil font (Excalidraw handwriting font) */
+@font-face {
+  font-family: 'Virgil';
+  src: url('https://excalidraw.com/Virgil.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-virgil: 'Virgil', cursive;
+}
+
 body {
   font-family: Arial, Helvetica, sans-serif;
 }
@@ -10,6 +23,40 @@ body {
   .text-balance {
     text-wrap: balance;
   }
+}
+
+.font-virgil {
+  font-family: var(--font-virgil);
+}
+
+/* Animation for polaroid flash effect */
+@keyframes flash {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-flash {
+  animation: flash 0.3s ease-out forwards;
+}
+
+/* Animation for slide up effect */
+@keyframes slideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slideUp {
+  animation: slideUp 0.5s ease-out forwards;
 }
 
 @layer base {
@@ -47,6 +94,8 @@ body {
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    --cream: 43, 75%, 95%;
+    --brown: 25, 35%, 45%;
   }
   .dark {
     --background: 0 0% 3.9%;

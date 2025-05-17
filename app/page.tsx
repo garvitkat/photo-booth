@@ -41,7 +41,9 @@ export default function Home() {
             <Camera className="w-16 h-16 text-brown/50" />
           </div>
           <div className="absolute bottom-6 left-0 right-0 text-center">
-            <p className="font-dancing-script text-lg text-brown">May 1, 2025</p>
+            <p className="font-virgil text-lg text-brown">
+              {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </p>
           </div>
         </div>
 

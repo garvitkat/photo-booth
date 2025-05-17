@@ -282,13 +282,23 @@ export default function PhotoBooth() {
 
   // Render photo strip on a canvas
   const renderPhotoStrip = async (canvas: HTMLCanvasElement, photoList: string[], captionText: string) => {
-    const ctx = canvas.getContext("2d")
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })
     if (!ctx) return
+
+    // Load the Virgil font first to ensure it's available
+    const virgil = new FontFace('Virgil', 'url(/fonts/Virgil.woff2)')
+    try {
+      await virgil.load()
+      document.fonts.add(virgil)
+      console.log("Virgil font loaded successfully for canvas")
+    } catch (err) {
+      console.warn("Failed to load Virgil font for canvas:", err)
+    }
 
     // Set dimensions for the photo strip
     const stripWidth = 800
     const photoHeight = 700
-    const captionHeight = 200 // Increased height for caption area
+    const captionHeight = 300 // Increased height for caption area
     const borderWidth = 40
     const spaceBetweenPhotos = 20
     const cornerRadius = 20 // Rounded corners
@@ -317,24 +327,51 @@ export default function PhotoBooth() {
       ctx.quadraticCurveTo(x, y, x + radius, y)
       ctx.closePath()
     }
-
-    // Fill with white background with rounded corners for the strip
-    ctx.fillStyle = "#fff"
-    drawRoundedRect(0, 0, stripWidth, stripHeight, cornerRadius)
-    ctx.fill()
-
-    // Add subtle texture to the background for vintage feel
-    ctx.save()
-    ctx.globalAlpha = 0.03
-    for (let i = 0; i < stripWidth; i += 4) {
-      for (let j = 0; j < stripHeight; j += 4) {
-        if (Math.random() > 0.75) {
-          ctx.fillStyle = "#000"
-          ctx.fillRect(i, j, 2, 2)
+    
+    // Helper: Add noise texture for vintage feel
+    const addNoiseTexture = (width: number, height: number, opacity = 0.03) => {
+      ctx.save()
+      ctx.globalAlpha = opacity
+      
+      for (let i = 0; i < width; i += 4) {
+        for (let j = 0; j < height; j += 4) {
+          if (Math.random() > 0.75) {
+            ctx.fillStyle = '#000'
+            ctx.fillRect(i, j, 2, 2)
+          }
         }
       }
+      
+      ctx.restore()
     }
-    ctx.restore()
+    
+    // Helper: Add vignette effect
+    const addVignette = (width: number, height: number, intensity = 0.05) => {
+      const gradient = ctx.createRadialGradient(
+        width / 2, height / 2, 0,
+        width / 2, height / 2, Math.max(width, height) / 1.5
+      )
+      
+      gradient.addColorStop(0, 'rgba(0,0,0,0)')
+      gradient.addColorStop(1, `rgba(0,0,0,${intensity})`)
+      
+      ctx.save()
+      ctx.fillStyle = gradient
+      ctx.fillRect(0, 0, width, height)
+      ctx.restore()
+    }
+
+    // Step 1: Fill with authentic polaroid off-white background
+    ctx.fillStyle = '#FFF8F0' // Slightly warm white for authentic polaroid look
+    ctx.fillRect(0, 0, stripWidth, stripHeight)
+    
+    // Add subtle noise texture
+    addNoiseTexture(stripWidth, stripHeight, 0.03)
+    
+    // Step 2: Create white polaroid border with rounded corners
+    ctx.fillStyle = '#FFFCF7' // Very subtle off-white for authentic polaroid
+    drawRoundedRect(0, 0, stripWidth, stripHeight, cornerRadius)
+    ctx.fill()
 
     // Load each photo and add to the strip
     for (let i = 0; i < photoList.length; i++) {
@@ -347,8 +384,8 @@ export default function PhotoBooth() {
           // Calculate position for this photo
           const yPos = borderWidth + i * (photoHeight + spaceBetweenPhotos)
 
-          // Apply vintage filter
-          ctx.filter = "saturate(0.8) brightness(1.1) contrast(0.85) sepia(0.15)"
+          // Apply authentic polaroid filter
+          ctx.filter = "saturate(0.8) brightness(1.05) contrast(1.1) sepia(0.12)"
 
           // Save context for clipping
           ctx.save()
@@ -381,16 +418,13 @@ export default function PhotoBooth() {
 
           // Restore context
           ctx.restore()
-
-          // Reset filter
           ctx.filter = "none"
 
-          // Add subtle shadow inside the photo
-          ctx.shadowColor = "rgba(0,0,0,0.1)"
-          ctx.shadowBlur = 8
-          ctx.shadowOffsetX = 0
-          ctx.shadowOffsetY = 0
+          // Add subtle inner shadow around photo for depth
+          ctx.shadowColor = "rgba(0,0,0,0.08)"
+          ctx.shadowBlur = 2
           ctx.strokeStyle = "rgba(0,0,0,0.05)"
+          ctx.lineWidth = 1
 
           // Draw stroke with rounded corners
           ctx.beginPath()
@@ -399,6 +433,7 @@ export default function PhotoBooth() {
 
           // Reset shadow
           ctx.shadowColor = "transparent"
+          ctx.shadowBlur = 0
 
           resolve()
         }
@@ -410,16 +445,64 @@ export default function PhotoBooth() {
     if (captionText) {
       // Position for caption (below the last photo)
       const captionY = borderWidth + 3 * photoHeight + 2 * spaceBetweenPhotos + 20
+      
+      // Add caption background for better contrast - white for authentic polaroid look
+      ctx.fillStyle = "#FFFFFF"
+      ctx.beginPath()
+      drawRoundedRect(
+        borderWidth, 
+        captionY - 20, 
+        stripWidth - borderWidth * 2, 
+        captionHeight, 
+        10
+      )
+      ctx.fill()
+      
+      // Add a very subtle separator line
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.1)"
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(borderWidth + 5, captionY - 17)
+      ctx.lineTo(stripWidth - borderWidth - 5, captionY - 17)
+      ctx.stroke()
 
-      // Draw caption text - MUCH LARGER
-      ctx.font = "bold 80px var(--font-virgil), sans-serif" // Significantly increased font size
-      ctx.fillStyle = "#333"
+      // Simple clean caption with Excalidraw-like font
+      ctx.save()
       ctx.textAlign = "center"
       ctx.textBaseline = "middle"
-
-      // Add caption text
-      ctx.fillText(captionText, stripWidth / 2, captionY + captionHeight / 2 - 20)
+      
+      // Use Virgil font with much larger size - multiple methods to ensure it works
+      const fontSizePx = 150
+      try {
+        // Try multiple approaches to ensure the font works
+        ctx.font = `bold ${fontSizePx}px 'Virgil', cursive`
+        
+        // Draw the text
+        const textY = captionY + (captionHeight / 2) - 20
+        const textX = stripWidth / 2
+        
+        // Draw with slight offset for emphasis
+        ctx.fillStyle = "#111111"
+        ctx.fillText(captionText, textX, textY, stripWidth - borderWidth * 3)
+        
+        console.log(`Caption rendered with font: ${ctx.font}, text: ${captionText}`)
+      } catch (err) {
+        console.error("Error rendering caption:", err)
+        // Fallback to system font if Virgil fails
+        ctx.font = `bold ${fontSizePx}px sans-serif`
+        ctx.fillText(captionText, stripWidth / 2, captionY + captionHeight / 2 - 20, stripWidth - borderWidth * 3)
+      }
+      
+      ctx.restore()
     }
+    
+    // Add finishing touches for authentic polaroid look
+    
+    // Add very subtle vignette effect
+    addVignette(stripWidth, stripHeight, 0.04)
+    
+    // Add very subtle film grain
+    addNoiseTexture(stripWidth, stripHeight, 0.01)
   }
 
   // Create the final photo strip from the captured photos
@@ -439,12 +522,102 @@ export default function PhotoBooth() {
   const downloadStrip = () => {
     if (!photoStrip) return
 
-    const link = document.createElement("a")
-    link.href = photoStrip
-    link.download = `retrosnaps-${new Date().getTime()}.png`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    // Check if we're on a mobile device
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    
+    if (isMobile) {
+      // For mobile devices, especially iOS, using a different approach
+      try {
+        // Create a visible link for better mobile compatibility
+        const downloadArea = document.createElement('div')
+        downloadArea.style.position = 'fixed'
+        downloadArea.style.top = '0'
+        downloadArea.style.left = '0'
+        downloadArea.style.width = '100%'
+        downloadArea.style.height = '100%'
+        downloadArea.style.backgroundColor = 'rgba(0,0,0,0.8)'
+        downloadArea.style.zIndex = '9999'
+        downloadArea.style.display = 'flex'
+        downloadArea.style.flexDirection = 'column'
+        downloadArea.style.alignItems = 'center'
+        downloadArea.style.justifyContent = 'center'
+        
+        // Create image element
+        const img = document.createElement('img')
+        img.src = photoStrip
+        img.style.maxWidth = '90%'
+        img.style.maxHeight = '80%'
+        img.style.objectFit = 'contain'
+        
+        // Create instructions text
+        const instructions = document.createElement('p')
+        instructions.innerText = isIOS 
+          ? 'Press and hold the image, then tap "Save Image"' 
+          : 'Tap the download button below to save'
+        instructions.style.color = 'white'
+        instructions.style.margin = '20px'
+        instructions.style.textAlign = 'center'
+        
+        // Add download button for non-iOS devices
+        const downloadButton = document.createElement('button')
+        downloadButton.innerText = 'Download Image'
+        downloadButton.style.padding = '12px 24px'
+        downloadButton.style.backgroundColor = '#8B7355'
+        downloadButton.style.color = 'white'
+        downloadButton.style.border = 'none'
+        downloadButton.style.borderRadius = '4px'
+        downloadButton.style.fontSize = '16px'
+        downloadButton.style.margin = '10px'
+        downloadButton.onclick = () => {
+          const link = document.createElement("a")
+          link.href = photoStrip
+          link.download = `retrosnaps-${new Date().getTime()}.png`
+          link.click()
+        }
+        
+        // Close button
+        const closeButton = document.createElement('button')
+        closeButton.innerText = 'Close'
+        closeButton.style.padding = '12px 24px'
+        closeButton.style.backgroundColor = 'transparent'
+        closeButton.style.color = 'white'
+        closeButton.style.border = '1px solid white'
+        closeButton.style.borderRadius = '4px'
+        closeButton.style.fontSize = '16px'
+        closeButton.style.margin = '10px'
+        closeButton.onclick = () => {
+          document.body.removeChild(downloadArea)
+        }
+        
+        // Append elements
+        downloadArea.appendChild(img)
+        downloadArea.appendChild(instructions)
+        if (!isIOS) {
+          downloadArea.appendChild(downloadButton)
+        }
+        downloadArea.appendChild(closeButton)
+        document.body.appendChild(downloadArea)
+        
+      } catch (error) {
+        console.error('Error with mobile download:', error)
+        // Fallback to traditional method
+        const link = document.createElement("a")
+        link.href = photoStrip
+        link.download = `retrosnaps-${new Date().getTime()}.png`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      }
+    } else {
+      // Desktop download approach
+      const link = document.createElement("a")
+      link.href = photoStrip
+      link.download = `retrosnaps-${new Date().getTime()}.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
   }
 
   // Reset the photo booth
@@ -595,19 +768,19 @@ export default function PhotoBooth() {
 
         {/* Caption input step with live preview */}
         {state === "adding-caption" && previewStrip && (
-          <div className="space-y-6">
+          <div className="space-y-6 text-center">
             <h2 className="text-2xl font-bold text-center">Add a Caption</h2>
 
-            <div className="relative mx-auto w-full max-w-xs">
+            <div className="flex justify-center items-center w-full">
               <img
                 src={previewStrip || "/placeholder.svg"}
                 alt="Your photo strip preview"
-                className="w-full shadow-lg rounded-xl object-contain"
-                style={{ maxHeight: "60vh" }}
+                className="max-h-[60vh] object-contain mx-auto"
+                style={{ filter: "drop-shadow(0 10px 15px rgba(0, 0, 0, 0.15))" }}
               />
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 max-w-sm mx-auto">
               <div className="space-y-2">
                 <label htmlFor="caption" className="block text-sm font-medium text-neutral-700">
                   Write a caption for your photo strip:
@@ -658,16 +831,16 @@ export default function PhotoBooth() {
           <div className="space-y-6 text-center">
             <h2 className="text-2xl font-bold">Your Photo Strip</h2>
 
-            <div className="relative mx-auto w-full max-w-xs animate-slideUp">
+            <div className="flex justify-center items-center w-full">
               <img
                 src={photoStrip || "/placeholder.svg"}
                 alt="Your photo strip"
-                className="w-full shadow-lg rounded-xl object-contain"
-                style={{ maxHeight: "70vh" }}
+                className="max-h-[75vh] object-contain mx-auto"
+                style={{ filter: "drop-shadow(0 10px 15px rgba(0, 0, 0, 0.15))" }}
               />
             </div>
 
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 max-w-sm mx-auto">
               {!caption && (
                 <Button
                   onClick={toggleCaptionEdit}
@@ -697,7 +870,11 @@ export default function PhotoBooth() {
               </Button>
             </div>
 
-            <p className="text-sm text-neutral-500 mt-4">On mobile, press and hold the image to save</p>
+            <p className="text-sm text-neutral-500 mt-4">
+              {/iPhone|iPad|iPod/i.test(typeof window !== 'undefined' ? window.navigator.userAgent : '') 
+                ? 'Tap "Download Photo Strip" for easier saving on iOS devices' 
+                : 'On mobile, press and hold the image to save'}
+            </p>
           </div>
         )}
       </div>
